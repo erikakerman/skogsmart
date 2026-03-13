@@ -1,0 +1,7 @@
+# PlatformIO build artefacts
+node/.pio/
+gateway/.pio/
+
+# Secret credentials — never commit
+node/include/secrets.h
+gateway/include/secrets.h
