@@ -5,8 +5,8 @@ This file provides guidance to Claude Code when working with this repository.
 ## Project Overview
 
 **Skogsmart** is a Swedish IoT forest monitoring system, part of the **Smart2 (Smartikvadrat)** brand.
-It enables Swedish forest owners and forestry companies to monitor bark beetle (*Ips typographus* -
-granbarkborre) infestations and environmental conditions via LoRaWAN wireless sensor networks
+It enables Swedish forest owners and forestry companies to monitor forest environmental conditions
+to detect stress and support forest health decisions via LoRaWAN wireless sensor networks
 deployed in forests.
 
 **Purpose:** This project is being built from scratch with clean architecture. It serves both as a
@@ -19,14 +19,14 @@ management, quality analysis, and IoT/LoRaWAN internship.
 
 ## Data Flow
 
-ESP32/LoRa32 sensors --> LoRaWAN --> The Things Network (TTN) --> TTN Webhook --> Backend API --> PostgreSQL --> React Frontend Dashboard
+Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262) sensors --> LoRaWAN --> The Things Network (TTN) --> TTN Webhook --> Backend API --> PostgreSQL --> React Frontend Dashboard
 
 ---
 
 ## Repository Structure
 
 skogsmart/
-|-- firmware/       # PlatformIO - ESP32/LoRa32 C/C++
+|-- firmware/       # PlatformIO - ESP32-S3 / Heltec WiFi LoRa 32 V3 C/C++
 |-- backend/        # FastAPI - Python REST API + TTN integration
 |-- frontend/       # React - dashboard web app
 |-- docs/           # Architecture decisions, API specs, domain notes
@@ -36,27 +36,44 @@ skogsmart/
 
 ## Layer 1: Firmware
 
-**Hardware:** TTGO LoRa32 (ESP32 + SX1276 LoRa radio)
+**Hardware:** Heltec WiFi LoRa 32 V3.2
+**MCU:** ESP32-S3
+**LoRa chip:** SX1262
+**USB:** Type-C
+**Sleep current:** ~15 µA on battery
 **Framework:** Arduino via PlatformIO
 **Language:** C/C++
 **Communication:** LoRaWAN -> The Things Network (TTN)
 
+### Project Layout
+
+firmware/
+|-- node/       # Sender - simulates a forest sensor node
+`-- gateway/    # Receiver - simulates a base station / gateway
+
 ### Build & Flash Commands
 
-cd firmware
+# Node (sensor)
+cd firmware/node
 pio run                                          # compile
 pio run --target upload                          # compile and flash
 pio run --target upload --target monitor         # flash and open serial monitor
 pio device monitor                               # serial monitor only
-pio test                                         # run unit tests
+
+# Gateway (base station)
+cd firmware/gateway
+pio run
+pio run --target upload
+pio run --target upload --target monitor
 
 ### Key Firmware Concepts
 
-- Sensors: Bark beetle pheromone trap counter (pulse/interrupt-based), DHT/SHT temperature + humidity
+- Sensors: Capacitive soil moisture, soil temperature, air temperature + humidity (DHT22 or SHT31), battery level. RSSI logged by gateway automatically (no payload bytes). Optional future sensors: light level, rain detection, bark beetle trap counter.
 - LoRaWAN: Uses OTAA (Over-The-Air Activation). Device EUI, App EUI, App Key stored in secrets.h (never committed).
 - Payload encoding: Compact binary payloads (CayenneLPP or custom byte-packed structs) to minimize airtime.
-- Deep sleep: wake -> read sensors -> transmit -> sleep.
-- Never commit TTN keys. Store in firmware/include/secrets.h (git-ignored). Commit secrets.h.example instead.
+- Deep sleep: wake -> read sensors -> transmit -> sleep (~15 µA sleep current on battery).
+- Never commit TTN keys. Store in firmware/node/include/secrets.h (git-ignored). Commit secrets.h.example instead.
+- SX1262 driver: use Heltec ESP32 library (heltec-automation/Heltec ESP32 Dev-Boards).
 
 ---
 
@@ -129,13 +146,12 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## Domain Concepts
 
-- Granbarkborre = Ips typographus = spruce bark beetle (primary target pest)
-- Fallor = pheromone traps
 - Skogsagare = forest owner (primary end user)
 - Bestand = forest stand (management unit)
-- Trap counters are cumulative; backend computes delta between readings
-- Alert thresholds based on Ips typographus outbreak risk guidance
-- Beetle activity peaks May-July in Sweden
+- Jordfuktighet = soil humidity (primary environmental indicator)
+- Marktemperatur = soil temperature
+- Alert thresholds: low soil humidity < 25%, high air temperature > 35°C, low battery < 20%
+- Granbarkborre (Ips typographus) monitoring is a future optional feature
 
 ---
 

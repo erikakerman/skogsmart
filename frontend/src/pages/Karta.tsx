@@ -1,175 +1,149 @@
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet'
 
 type AreaStatus = 'normal' | 'varning' | 'larm'
-type SensorStatus = 'normal' | 'varning' | 'larm'
 
 interface ForestArea {
   id: string
   name: string
   coords: [number, number]
   status: AreaStatus
-  activeSensors: number
-  latestCatch: number
-  color: string
   fillColor: string
 }
 
-interface SensorNode {
+interface AreaPanelItem {
   id: string
-  area: string
-  coords: [number, number]
-  status: SensorStatus
-  deviceId: string
-  latestCatch: number
+  name: string
+  status: AreaStatus
+  sensors: number
+  avgSoilHumidity: number
+  activeAlerts: number
 }
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
 
 const forestAreas: ForestArea[] = [
-  {
-    id: 'hovmansbygd',
-    name: 'Hovmansbygd',
-    coords: [56.78, 14.95],
-    status: 'normal',
-    activeSensors: 3,
-    latestCatch: 3,
-    color: '#16a34a',
-    fillColor: '#16a34a',
-  },
-  {
-    id: 'siggaboda',
-    name: 'Siggaboda',
-    coords: [56.62, 15.18],
-    status: 'varning',
-    activeSensors: 4,
-    latestCatch: 34,
-    color: '#d97706',
-    fillColor: '#d97706',
-  },
-  {
-    id: 'haraholmen',
-    name: 'Haraholmen',
-    coords: [56.91, 15.45],
-    status: 'larm',
-    activeSensors: 5,
-    latestCatch: 45,
-    color: '#dc2626',
-    fillColor: '#dc2626',
-  },
+  { id: 'hovmansbygd', name: 'Hovmansbygd', coords: [56.78, 14.95], status: 'normal',  fillColor: '#4a7c59' },
+  { id: 'siggaboda',   name: 'Siggaboda',   coords: [56.62, 15.18], status: 'varning', fillColor: '#e8a020' },
+  { id: 'haraholmen',  name: 'Haraholmen',  coords: [56.91, 15.45], status: 'larm',    fillColor: '#c0392b' },
 ]
 
-const sensorNodes: SensorNode[] = [
-  // Hovmansbygd — 3 sensors, all green
-  { id: 's1', area: 'Hovmansbygd', coords: [56.792, 14.932], status: 'normal', deviceId: 'SK-001', latestCatch: 2 },
-  { id: 's2', area: 'Hovmansbygd', coords: [56.771, 14.968], status: 'normal', deviceId: 'SK-002', latestCatch: 3 },
-  { id: 's3', area: 'Hovmansbygd', coords: [56.784, 14.913], status: 'normal', deviceId: 'SK-004', latestCatch: 1 },
-
-  // Siggaboda — 4 sensors: 2 amber, 1 green, 1 red
-  { id: 's4', area: 'Siggaboda', coords: [56.608, 15.161], status: 'varning', deviceId: 'SK-003', latestCatch: 29 },
-  { id: 's5', area: 'Siggaboda', coords: [56.631, 15.197], status: 'varning', deviceId: 'SK-005', latestCatch: 22 },
-  { id: 's6', area: 'Siggaboda', coords: [56.614, 15.212], status: 'normal',  deviceId: 'SK-006', latestCatch: 8 },
-  { id: 's7', area: 'Siggaboda', coords: [56.625, 15.148], status: 'larm',    deviceId: 'SK-011', latestCatch: 41 },
-
-  // Haraholmen — 5 sensors: 3 red, 2 amber
-  { id: 's8',  area: 'Haraholmen', coords: [56.923, 15.428], status: 'larm',    deviceId: 'SK-007', latestCatch: 45 },
-  { id: 's9',  area: 'Haraholmen', coords: [56.905, 15.462], status: 'larm',    deviceId: 'SK-008', latestCatch: 38 },
-  { id: 's10', area: 'Haraholmen', coords: [56.918, 15.471], status: 'larm',    deviceId: 'SK-009', latestCatch: 33 },
-  { id: 's11', area: 'Haraholmen', coords: [56.897, 15.437], status: 'varning', deviceId: 'SK-010', latestCatch: 19 },
-  { id: 's12', area: 'Haraholmen', coords: [56.932, 15.445], status: 'varning', deviceId: 'SK-012', latestCatch: 14 },
+const areaPanelItems: AreaPanelItem[] = [
+  { id: 'hovmansbygd', name: 'Hovmansbygd', status: 'normal',  sensors: 3, avgSoilHumidity: 62, activeAlerts: 0 },
+  { id: 'siggaboda',   name: 'Siggaboda',   status: 'varning', sensors: 4, avgSoilHumidity: 26, activeAlerts: 2 },
+  { id: 'haraholmen',  name: 'Haraholmen',  status: 'larm',    sensors: 5, avgSoilHumidity: 67, activeAlerts: 1 },
 ]
 
-const statusColorMap: Record<SensorStatus, string> = {
-  normal: '#16a34a',
-  varning: '#d97706',
-  larm: '#dc2626',
+const statusLabelMap: Record<AreaStatus, string> = {
+  normal:  'Normal',
+  varning: 'Varning',
+  larm:    'Larm',
 }
 
-const statusLabelMap: Record<AreaStatus | SensorStatus, string> = {
-  normal: 'Normal',
-  varning: 'Varning ⚠️',
-  larm: 'Larm 🔴',
+// ─── Area panel card ──────────────────────────────────────────────────────────
+
+function AreaCard({ item }: { item: AreaPanelItem }) {
+  const soilWarn   = item.avgSoilHumidity < 25
+  const alertDanger = item.activeAlerts > 1
+
+  return (
+    <div className={`karta-area-card karta-area-card--${item.status}`}>
+      <div className="karta-area-header">
+        <span className="karta-area-name">{item.name}</span>
+        <div className="status-dot-wrap">
+          <span className={`status-dot status-dot--${item.status}`} />
+          <span className="status-label">{statusLabelMap[item.status]}</span>
+        </div>
+      </div>
+      <div className="karta-area-stats">
+        <div>
+          <p className="karta-stat__label">Sensorer</p>
+          <p className="karta-stat__value">{item.sensors}</p>
+        </div>
+        <div>
+          <p className="karta-stat__label">Jordfuktighet</p>
+          <p className={`karta-stat__value${soilWarn ? ' karta-stat__value--warning' : ''}`}>
+            {item.avgSoilHumidity}%
+          </p>
+        </div>
+        <div>
+          <p className="karta-stat__label">Aktiva larm</p>
+          <p className={`karta-stat__value${alertDanger ? ' karta-stat__value--danger' : item.activeAlerts > 0 ? ' karta-stat__value--warning' : ''}`}>
+            {item.activeAlerts}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Karta() {
   return (
-    <div className="flex flex-col h-full gap-4">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-stone-800">Karta</h2>
-        <p className="text-sm text-stone-500 mt-0.5">Sensorernas placering och status i realtid</p>
-      </div>
+    <div className="page">
+      <div className="karta-layout">
 
-      {/* Map fills remaining height */}
-      <div className="relative flex-1 rounded-xl overflow-hidden border border-stone-200 shadow-sm min-h-[500px]">
-        <MapContainer
-          center={[56.7, 15.2]}
-          zoom={9}
-          style={{ height: '100%', width: '100%' }}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap"
-          />
+        {/* Left: map */}
+        <div className="karta-map-area">
+          <div className="map-wrap">
+            <MapContainer center={[56.75, 15.2]} zoom={9} style={{ height: '100%', width: '100%' }}>
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution="&copy; OpenStreetMap"
+              />
 
-          {/* Forest area markers — large circles */}
-          {forestAreas.map((area) => (
-            <CircleMarker
-              key={area.id}
-              center={area.coords}
-              radius={18}
-              pathOptions={{
-                color: area.color,
-                fillColor: area.fillColor,
-                fillOpacity: 0.35,
-                weight: 3,
-              }}
-            >
-              <Popup>
-                <div style={{ lineHeight: '1.6', minWidth: '160px' }}>
-                  <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '14px' }}>{area.name}</p>
-                  <p style={{ margin: '0 0 2px' }}>Aktiva sensorer: {area.activeSensors}</p>
-                  <p style={{ margin: '0 0 2px' }}>Senaste fångst: {area.latestCatch} skalbaggar</p>
-                  <p style={{ margin: '0' }}>Status: {statusLabelMap[area.status]}</p>
+              {forestAreas.map((area) => (
+                <CircleMarker
+                  key={area.id}
+                  center={area.coords}
+                  radius={18}
+                  pathOptions={{
+                    color: 'white',
+                    fillColor: area.fillColor,
+                    fillOpacity: 0.92,
+                    weight: 3,
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -14]} opacity={1}>
+                    <span style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: '13px' }}>
+                      {area.name}
+                    </span>
+                  </Tooltip>
+                </CircleMarker>
+              ))}
+            </MapContainer>
+
+            <div className="map-legend">
+              <p className="map-legend__title">Förklaring</p>
+              <div className="map-legend__items">
+                <div className="status-dot-wrap">
+                  <span className="status-dot status-dot--normal" />
+                  <span className="status-label">Normal</span>
                 </div>
-              </Popup>
-            </CircleMarker>
-          ))}
-
-          {/* Sensor node markers — small circles */}
-          {sensorNodes.map((node) => {
-            const color = statusColorMap[node.status]
-            return (
-              <CircleMarker
-                key={node.id}
-                center={node.coords}
-                radius={8}
-                pathOptions={{
-                  color,
-                  fillColor: color,
-                  fillOpacity: 0.85,
-                  weight: 2,
-                }}
-              >
-                <Popup>
-                  <div style={{ lineHeight: '1.6', minWidth: '160px' }}>
-                    <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '14px' }}>{node.deviceId}</p>
-                    <p style={{ margin: '0 0 2px' }}>Område: {node.area}</p>
-                    <p style={{ margin: '0 0 2px' }}>Fångst: {node.latestCatch} skalbaggar</p>
-                    <p style={{ margin: '0' }}>Status: {statusLabelMap[node.status]}</p>
-                  </div>
-                </Popup>
-              </CircleMarker>
-            )
-          })}
-        </MapContainer>
-
-        {/* Legend overlay */}
-        <div className="absolute bottom-6 right-4 z-[1000] bg-white rounded-xl shadow-lg p-3 text-sm text-stone-700">
-          <p className="font-semibold mb-1.5">Förklaring</p>
-          <div className="flex flex-col gap-1">
-            <span>🟢 Normal</span>
-            <span>🟡 Varning</span>
-            <span>🔴 Larm</span>
+                <div className="status-dot-wrap">
+                  <span className="status-dot status-dot--varning" />
+                  <span className="status-label">Varning</span>
+                </div>
+                <div className="status-dot-wrap">
+                  <span className="status-dot status-dot--larm" />
+                  <span className="status-label">Larm</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Right: summary panel */}
+        <div className="karta-panel">
+          <div className="page-header">
+            <h1 className="page-title">Karta</h1>
+            <p className="page-subtitle">Sensorernas placering och status i realtid</p>
+          </div>
+          {areaPanelItems.map((item) => (
+            <AreaCard key={item.id} item={item} />
+          ))}
+        </div>
+
       </div>
     </div>
   )
