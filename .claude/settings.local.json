@@ -7,7 +7,8 @@
       "Bash(npm install:*)",
       "Bash(node:*)",
       "Bash(npm run:*)",
-      "Bash(pio run:*)"
+      "Bash(pio run:*)",
+      "PowerShell(& \"$env:USERPROFILE\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run --project-dir C:\\\\Users\\\\user\\\\projects\\\\skogsmart\\\\firmware\\\\node --target upload --target monitor --upload-port COM3 --monitor-port COM3)"
     ]
   }
 }
