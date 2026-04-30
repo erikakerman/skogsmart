@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Cpu, TreePine, BellDot, Droplets, AlertTriangle, Info } from 'lucide-react'
 import {
   AreaChart,
@@ -9,7 +10,23 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-// ─── Data interfaces ──────────────────────────────────────────────────────────
+// ─── API types ────────────────────────────────────────────────────────────────
+
+interface ApiReading {
+  device_id: string
+  soil_humidity: number
+  soil_temperature: number
+  air_temperature: number
+  air_humidity: number
+  battery_level: number
+  rssi: number
+  snr: number
+  received_at: string
+  name: string
+  area: string
+}
+
+// ─── Chart data ───────────────────────────────────────────────────────────────
 
 interface ChartDataPoint {
   dag: string
@@ -25,19 +42,6 @@ interface Alert {
   severity: 'VARNING' | 'INFO'
   time: string
 }
-
-interface Reading {
-  enhet: string
-  omrade: string
-  jordFuktighet: number
-  markTemp: string
-  luftTemp: string
-  luftfuktighet: string
-  batteri: number
-  tidpunkt: string
-}
-
-// ─── Chart data ───────────────────────────────────────────────────────────────
 
 const SWEDISH_SHORT_MONTHS = [
   'jan', 'feb', 'mars', 'apr', 'maj', 'jun',
@@ -73,14 +77,6 @@ const alerts: Alert[] = [
   { id: 3, title: 'Hög lufttemperatur – Haraholmen',  subtitle: 'Lufttemperatur över 35°C',   severity: 'VARNING', time: 'Igår' },
 ]
 
-const readings: Reading[] = [
-  { enhet: 'SK-003', omrade: 'Siggaboda',   jordFuktighet: 21, markTemp: '8.2°C', luftTemp: '16.4°C', luftfuktighet: '78%', batteri: 65, tidpunkt: '2026-03-04 08:12' },
-  { enhet: 'SK-007', omrade: 'Haraholmen',  jordFuktighet: 68, markTemp: '7.8°C', luftTemp: '15.8°C', luftfuktighet: '82%', batteri: 18, tidpunkt: '2026-03-04 07:55' },
-  { enhet: 'SK-001', omrade: 'Hovmansbygd', jordFuktighet: 62, markTemp: '9.1°C', luftTemp: '17.1°C', luftfuktighet: '71%', batteri: 87, tidpunkt: '2026-03-04 07:40' },
-  { enhet: 'SK-011', omrade: 'Siggaboda',   jordFuktighet: 19, markTemp: '8.0°C', luftTemp: '16.0°C', luftfuktighet: '79%', batteri: 41, tidpunkt: '2026-03-04 06:58' },
-  { enhet: 'SK-009', omrade: 'Haraholmen',  jordFuktighet: 71, markTemp: '7.6°C', luftTemp: '15.6°C', luftfuktighet: '84%', batteri: 60, tidpunkt: '2026-03-03 23:14' },
-]
-
 // ─── KPI card ─────────────────────────────────────────────────────────────────
 
 interface KpiCardProps {
@@ -114,18 +110,68 @@ const legendItems = [
   { label: 'Haraholmen',  color: '#2c6ea6' },
 ]
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatTimestamp(ts: string): string {
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  return d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+const API_BASE = 'http://192.168.1.75:8000'
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const [readings, setReadings] = useState<ApiReading[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
+
+    Promise.all([
+      fetch(`${API_BASE}/api/readings`, { signal }).then(r => r.json()),
+      fetch(`${API_BASE}/api/devices`,  { signal }).then(r => r.json()),
+    ])
+      .then(([readingsData]: [ApiReading[], unknown]) => {
+        setReadings(readingsData)
+        setLoading(false)
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') setLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  const activeSensors = new Set(readings.map(r => r.device_id)).size
+  const avgSoilHumidity =
+    readings.length > 0
+      ? Math.round(readings.reduce((sum, r) => sum + r.soil_humidity, 0) / readings.length)
+      : 0
+
   const xTickFormatter = (_: string, index: number) => (index % 5 === 0 ? _ : '')
 
   return (
     <div className="page">
       <div className="kpi-grid">
-        <KpiCard label="Aktiva sensorer"     value="12"  trend="= oförändrat"    icon={Cpu}      variant="green" />
+        <KpiCard
+          label="Aktiva sensorer"
+          value={loading ? '–' : String(activeSensors)}
+          trend="= oförändrat"
+          icon={Cpu}
+          variant="green"
+        />
         <KpiCard label="Skogsområden"        value="4"   trend="= oförändrat"    icon={TreePine} variant="green" />
         <KpiCard label="Aktiva larm"         value="3"   trend="↑ 1 sedan igår"  icon={BellDot}  variant="red"   />
-        <KpiCard label="Snitt jordfuktighet" value="58%" trend="↓ 3% sedan igår" icon={Droplets} variant="blue"  />
+        <KpiCard
+          label="Snitt jordfuktighet"
+          value={loading ? '–' : `${avgSoilHumidity}%`}
+          trend="↓ 3% sedan igår"
+          icon={Droplets}
+          variant="blue"
+        />
       </div>
 
       {/* Gradient area chart with floating legend */}
@@ -232,36 +278,42 @@ export default function Dashboard() {
         <div className="card">
           <p className="card-title">Senaste avläsningar</p>
           <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Enhet</th>
-                  <th>Område</th>
-                  <th className="text-right">Jordfukt.</th>
-                  <th className="text-right">Marktemp</th>
-                  <th className="text-right">Lufttemp</th>
-                  <th className="text-right">Batteri</th>
-                  <th>Tidpunkt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {readings.map((row) => (
-                  <tr key={`${row.enhet}-${row.tidpunkt}`}>
-                    <td className="col-mono">{row.enhet}</td>
-                    <td>{row.omrade}</td>
-                    <td className={`text-right${row.jordFuktighet < 25 ? ' col-warn' : ''}`}>
-                      {row.jordFuktighet}%
-                    </td>
-                    <td className="text-right">{row.markTemp}</td>
-                    <td className="text-right">{row.luftTemp}</td>
-                    <td className={`text-right${row.batteri < 20 ? ' col-danger' : ''}`}>
-                      {row.batteri}%
-                    </td>
-                    <td className="col-muted">{row.tidpunkt}</td>
+            {loading ? (
+              <p className="col-muted" style={{ padding: '16px 0', textAlign: 'center' }}>Laddar data…</p>
+            ) : readings.length === 0 ? (
+              <p className="col-muted" style={{ padding: '16px 0', textAlign: 'center' }}>Inga avläsningar hittades</p>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Enhet</th>
+                    <th>Område</th>
+                    <th className="text-right">Jordfukt.</th>
+                    <th className="text-right">Marktemp</th>
+                    <th className="text-right">Lufttemp</th>
+                    <th className="text-right">Batteri</th>
+                    <th>Tidpunkt</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {readings.map((row) => (
+                    <tr key={`${row.device_id}-${row.received_at}`}>
+                      <td className="col-mono">{row.name || row.device_id}</td>
+                      <td>{row.area}</td>
+                      <td className={`text-right${row.soil_humidity < 25 ? ' col-warn' : ''}`}>
+                        {row.soil_humidity}%
+                      </td>
+                      <td className="text-right">{row.soil_temperature.toFixed(1)}°C</td>
+                      <td className="text-right">{row.air_temperature.toFixed(1)}°C</td>
+                      <td className={`text-right${row.battery_level < 20 ? ' col-danger' : ''}`}>
+                        {row.battery_level}%
+                      </td>
+                      <td className="col-muted">{formatTimestamp(row.received_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
