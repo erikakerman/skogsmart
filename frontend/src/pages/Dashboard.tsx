@@ -118,7 +118,7 @@ function formatTimestamp(ts: string): string {
   return d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-const API_BASE = 'http://192.168.1.75:8000'
+const API_BASE = '/api'
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
@@ -131,8 +131,8 @@ export default function Dashboard() {
     const { signal } = controller
 
     Promise.all([
-      fetch(`${API_BASE}/api/readings`, { signal }).then(r => r.json()),
-      fetch(`${API_BASE}/api/devices`,  { signal }).then(r => r.json()),
+      fetch(`${API_BASE}/readings`, { signal }).then(r => r.json()),
+      fetch(`${API_BASE}/devices`,  { signal }).then(r => r.json()),
     ])
       .then(([readingsData]: [ApiReading[], unknown]) => {
         setReadings(readingsData)
